@@ -1,41 +1,91 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
+import { ArrowUpRight, Wallet } from "lucide-react";
 
 export default async function DashboardPage() {
   const { userId } = await auth();
   const user = await currentUser();
+  const firstName = user?.firstName;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-14">
+      {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
-          Welcome{user?.firstName ? `, ${user.firstName}` : ""} 👋
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400 mb-4">
+          Dashboard
+        </p>
+        <h1 className="text-[32px] leading-[1.1] font-semibold tracking-[-0.035em] text-zinc-900">
+          Welcome{firstName ? `, ${firstName}` : ""}
         </h1>
-        <p className="text-sm text-zinc-500 mt-1">
-          You're signed in. Let's finish setting up your budget.
+        <p className="text-[15px] text-zinc-500 mt-3 leading-relaxed max-w-lg">
+          Set up your budget to see a daily spending allowance that keeps you
+          on track.
         </p>
       </div>
 
-      <div className="bg-white border border-zinc-200 rounded-xl p-6">
-        <h2 className="text-sm font-semibold text-zinc-900 uppercase tracking-wide">
-          Debug info
-        </h2>
-        <div className="mt-4 space-y-2 text-sm">
+      {/* Two-column: action + at-a-glance stat */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        {/* Primary action */}
+        <div className="md:col-span-3 rounded-2xl border border-zinc-200 p-7 flex flex-col justify-between min-h-[200px]">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-lg bg-zinc-900 flex items-center justify-center shrink-0">
+              <Wallet className="w-5 h-5 text-white" strokeWidth={1.75} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-zinc-900">
+                Set your monthly cap
+              </h2>
+              <p className="text-[13.5px] text-zinc-500 mt-1.5 leading-relaxed max-w-sm">
+                Tell Runway how much you want to spend this month. We'll work
+                out how much you can safely spend each day.
+              </p>
+            </div>
+          </div>
+          <div className="mt-6 pt-6 border-t border-zinc-100 flex items-center justify-between">
+            <span className="text-[12px] font-medium tracking-wide text-zinc-400">
+              Next step · Coming in onboarding
+            </span>
+            <ArrowUpRight
+              className="w-3.5 h-3.5 text-zinc-300"
+              strokeWidth={1.75}
+            />
+          </div>
+        </div>
+
+        {/* At-a-glance stat */}
+        <div className="md:col-span-2 rounded-2xl border border-zinc-200 p-7 flex flex-col justify-between min-h-[200px]">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">
+            This month
+          </p>
+          <div>
+            <p className="text-[32px] font-semibold tracking-[-0.035em] text-zinc-300 tabular-nums leading-none">
+              ₦0.00
+            </p>
+            <p className="text-[12.5px] text-zinc-400 mt-2">
+              Set a cap to start tracking
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Session details */}
+      <details className="group">
+        <summary className="text-[12px] text-zinc-400 hover:text-zinc-700 transition-colors cursor-pointer select-none list-none flex items-center gap-2">
+          <span className="inline-block w-1 h-1 rounded-full bg-zinc-300 group-open:bg-emerald-500 transition-colors" />
+          Session details
+        </summary>
+        <div className="mt-4 pl-5 border-l border-zinc-100 space-y-2 font-mono text-[11px] text-zinc-500">
           <div className="flex gap-3">
-            <span className="text-zinc-500 w-24 shrink-0">Clerk ID</span>
-            <span className="font-mono text-zinc-700 break-all">{userId}</span>
+            <span className="text-zinc-400 w-16 shrink-0">Clerk ID</span>
+            <span className="break-all">{userId}</span>
           </div>
           <div className="flex gap-3">
-            <span className="text-zinc-500 w-24 shrink-0">Email</span>
-            <span className="font-mono text-zinc-700 break-all">
+            <span className="text-zinc-400 w-16 shrink-0">Email</span>
+            <span className="break-all">
               {user?.emailAddresses[0]?.emailAddress ?? "—"}
             </span>
           </div>
         </div>
-        <p className="text-xs text-zinc-400 mt-6">
-          This page is temporary — it will be replaced with your budget dashboard
-          in Phase 3.
-        </p>
-      </div>
+      </details>
     </div>
   );
 }
