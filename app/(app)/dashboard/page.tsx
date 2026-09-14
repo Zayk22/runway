@@ -1,10 +1,29 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 import { ArrowUpRight, Wallet } from "lucide-react";
+import { ensureCurrentUser } from "@/lib/db/queries";
+
+function formatNaira(kobo: number): string {
+  return new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    minimumFractionDigits: 2,
+  }).format(kobo / 100);
+}
 
 export default async function DashboardPage() {
-  const { userId } = await auth();
-  const user = await currentUser();
-  const firstName = user?.firstName;
+  const user = await ensureCurrentUser();
+
+  if (!user) {
+    redirect("/sign-in");
+  }
+
+  // New user hasn't completed onboarding yet → send them there
+  if (user.monthlyCap === null) {
+    redirect("/onboarding");
+  }
+
+  const firstName = user.displayName?.split(" ")[0] ?? null;
+  const capFormatted = formatNaira(user.monthlyCap);
 
   return (
     <div className="space-y-14">
@@ -17,12 +36,11 @@ export default async function DashboardPage() {
           Welcome{firstName ? `, ${firstName}` : ""}
         </h1>
         <p className="text-[15px] text-zinc-500 mt-3 leading-relaxed max-w-lg">
-          Set up your budget to see a daily spending allowance that keeps you
-          on track.
+          Upload a statement to see how much you can safely spend each day.
         </p>
       </div>
 
-      {/* Two-column: action + at-a-glance stat */}
+      {/* Two-column: action + stat */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         {/* Primary action */}
         <div className="md:col-span-3 rounded-2xl border border-zinc-200 p-7 flex flex-col justify-between min-h-[200px]">
@@ -32,17 +50,17 @@ export default async function DashboardPage() {
             </div>
             <div className="flex-1 min-w-0">
               <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-zinc-900">
-                Set your monthly cap
+                Upload a statement
               </h2>
               <p className="text-[13.5px] text-zinc-500 mt-1.5 leading-relaxed max-w-sm">
-                Tell Runway how much you want to spend this month. We'll work
-                out how much you can safely spend each day.
+                Drop in a CSV or PDF from your bank. We'll parse it in your
+                browser — nothing is stored.
               </p>
             </div>
           </div>
           <div className="mt-6 pt-6 border-t border-zinc-100 flex items-center justify-between">
             <span className="text-[12px] font-medium tracking-wide text-zinc-400">
-              Next step · Coming in onboarding
+              Coming next
             </span>
             <ArrowUpRight
               className="w-3.5 h-3.5 text-zinc-300"
@@ -57,12 +75,10 @@ export default async function DashboardPage() {
             This month
           </p>
           <div>
-            <p className="text-[32px] font-semibold tracking-[-0.035em] text-zinc-300 tabular-nums leading-none">
-              ₦0.00
+            <p className="text-[32px] font-semibold tracking-[-0.035em] text-zinc-900 tabular-nums leading-none">
+              {capFormatted}
             </p>
-            <p className="text-[12.5px] text-zinc-400 mt-2">
-              Set a cap to start tracking
-            </p>
+            <p className="text-[12.5px] text-zinc-400 mt-2">Monthly cap</p>
           </div>
         </div>
       </div>
@@ -75,13 +91,17 @@ export default async function DashboardPage() {
         </summary>
         <div className="mt-4 pl-5 border-l border-zinc-100 space-y-2 font-mono text-[11px] text-zinc-500">
           <div className="flex gap-3">
-            <span className="text-zinc-400 w-16 shrink-0">Clerk ID</span>
-            <span className="break-all">{userId}</span>
+            <span className="text-zinc-400 w-20 shrink-0">User ID</span>
+            <span className="break-all">{user.id}</span>
           </div>
           <div className="flex gap-3">
-            <span className="text-zinc-400 w-16 shrink-0">Email</span>
+            <span className="text-zinc-400 w-20 shrink-0">Email</span>
+            <span className="break-all">{user.email}</span>
+          </div>
+          <div className="flex gap-3">
+            <span className="text-zinc-400 w-20 shrink-0">Monthly cap</span>
             <span className="break-all">
-              {user?.emailAddresses[0]?.emailAddress ?? "—"}
+              {user.monthlyCap} kobo ({capFormatted})
             </span>
           </div>
         </div>
