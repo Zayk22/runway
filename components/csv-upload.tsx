@@ -23,7 +23,15 @@ type Stage = "idle" | "mapping" | "pdf-preview" | "importing" | "success";
 
 const PREVIEW_ROWS = 5;
 
-export function CsvUpload() {
+type Props = {
+  nextHref?: string;
+  nextLabel?: string;
+};
+
+export function CsvUpload({
+  nextHref = "/dashboard",
+  nextLabel = "Back to dashboard",
+}: Props = {}) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -553,10 +561,10 @@ export function CsvUpload() {
           Upload another
         </button>
         <button
-          onClick={() => router.push("/dashboard")}
+          onClick={() => router.push(nextHref)}
           className="h-11 px-6 rounded-xl bg-zinc-900 text-white text-[13px] font-medium hover:bg-zinc-800 transition-colors"
         >
-          Back to dashboard
+          {nextLabel}
         </button>
       </div>
     </div>
