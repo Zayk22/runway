@@ -3,15 +3,23 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
-import { ArrowLeft, Check, FileText, Upload } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  FileSpreadsheet,
+  FileText,
+  Upload,
+} from "lucide-react";
 import {
   guessMapping,
   normalizeRows,
   type ColumnMapping,
+  type NormalizedTransaction,
 } from "@/lib/csv";
+import { parseOpayPdf } from "@/lib/pdf";
 import { importTransactions } from "@/app/(app)/upload/actions";
 
-type Stage = "idle" | "mapping" | "importing" | "success";
+type Stage = "idle" | "mapping" | "pdf-preview" | "importing" | "success";
 
 const PREVIEW_ROWS = 5;
 
@@ -20,7 +28,8 @@ export function CsvUpload() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [stage, setStage] = useState<Stage>("idle");
-  const [fileName, setFileName] = useState<string>("");
+  const [fileName, setFileName] = useState("");
+  const [fileSource, setFileSource] = useState<string>("csv");
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<ColumnMapping>({
@@ -29,14 +38,36 @@ export function CsvUpload() {
     amount: "",
     typeMode: "expense",
   });
+  const [pdfTxs, setPdfTxs] = useState<NormalizedTransaction[]>([]);
+  const [pdfSkipped, setPdfSkipped] = useState(0);
+  const [pdfInternalFiltered, setPdfInternalFiltered] = useState(0);
   const [importedCount, setImportedCount] = useState(0);
   const [skippedCount, setSkippedCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [isParsingPdf, setIsParsingPdf] = useState(false);
 
-  const handleFile = useCallback((file: File) => {
+  const handleFile = useCallback(async (file: File) => {
     setError(null);
     setFileName(file.name);
 
+    const lower = file.name.toLowerCase();
+
+    if (lower.endsWith(".csv")) {
+      setFileSource("csv");
+      handleCsv(file);
+      return;
+    }
+
+    if (lower.endsWith(".pdf")) {
+      setFileSource("pdf-opay");
+      await handlePdf(file);
+      return;
+    }
+
+    setError("Unsupported file type. Use .csv or .pdf.");
+  }, []);
+
+  const handleCsv = (file: File) => {
     Papa.parse<string[]>(file, {
       header: false,
       skipEmptyLines: "greedy",
@@ -69,11 +100,37 @@ export function CsvUpload() {
 
         setStage("mapping");
       },
-      error: (err) => {
-        setError(`Could not read file: ${err.message}`);
-      },
+      error: (err) => setError(`Could not read file: ${err.message}`),
     });
-  }, []);
+  };
+
+  const handlePdf = async (file: File) => {
+    setIsParsingPdf(true);
+    setError(null);
+
+    try {
+      const result = await parseOpayPdf(file);
+
+      if (result.transactions.length === 0) {
+        setError(
+          `Couldn't extract any transactions from this PDF. ${result.totalRows} rows matched the date pattern, but no valid amounts were found.`
+        );
+        setIsParsingPdf(false);
+        return;
+      }
+
+      setPdfTxs(result.transactions);
+      setPdfSkipped(result.skipped);
+      setPdfInternalFiltered(result.internalFiltered);
+      setStage("pdf-preview");
+    } catch (err) {
+      setError(
+        `PDF parsing failed: ${err instanceof Error ? err.message : "unknown error"}`
+      );
+    } finally {
+      setIsParsingPdf(false);
+    }
+  };
 
   const onFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -96,11 +153,11 @@ export function CsvUpload() {
     );
   }, [headers, rows]);
 
-  const canImport =
+  const canImportCsv =
     mapping.date && mapping.description && mapping.amount && rows.length > 0;
 
-  const handleImport = async () => {
-    if (!canImport) return;
+  const handleImportCsv = async () => {
+    if (!canImportCsv) return;
 
     setStage("importing");
     setError(null);
@@ -108,14 +165,12 @@ export function CsvUpload() {
     const { valid, skipped } = normalizeRows(headers, rows, mapping);
 
     if (valid.length === 0) {
-      setError(
-        `No valid rows found. Checked ${rows.length}, all were unparseable.`
-      );
+      setError(`No valid rows found. Checked ${rows.length}.`);
       setStage("mapping");
       return;
     }
 
-    const result = await importTransactions(valid);
+    const result = await importTransactions(valid, "csv");
 
     if (!result.success) {
       setError(result.error ?? "Import failed.");
@@ -128,11 +183,34 @@ export function CsvUpload() {
     setStage("success");
   };
 
+  const handleImportPdf = async () => {
+    if (pdfTxs.length === 0) return;
+
+    setStage("importing");
+    setError(null);
+
+    const result = await importTransactions(pdfTxs, "pdf-opay");
+
+    if (!result.success) {
+      setError(result.error ?? "Import failed.");
+      setStage("pdf-preview");
+      return;
+    }
+
+    setImportedCount(result.inserted);
+    setSkippedCount(pdfSkipped);
+    setStage("success");
+  };
+
   const reset = () => {
     setStage("idle");
     setFileName("");
+    setFileSource("csv");
     setHeaders([]);
     setRows([]);
+    setPdfTxs([]);
+    setPdfSkipped(0);
+    setPdfInternalFiltered(0);
     setError(null);
     setImportedCount(0);
     setSkippedCount(0);
@@ -147,41 +225,158 @@ export function CsvUpload() {
           onDrop={onDrop}
           onDragOver={(e) => e.preventDefault()}
           className="rounded-2xl border-2 border-dashed border-zinc-200 hover:border-zinc-300 transition-colors p-12 text-center cursor-pointer"
-          onClick={() => inputRef.current?.click()}
+          onClick={() => !isParsingPdf && inputRef.current?.click()}
         >
-          <div className="w-12 h-12 rounded-xl bg-zinc-100 flex items-center justify-center mx-auto mb-4">
-            <Upload className="w-5 h-5 text-zinc-600" strokeWidth={1.75} />
-          </div>
-          <p className="text-[14px] font-medium text-zinc-900">
-            Drop your statement here, or click to browse
-          </p>
-          <p className="text-[12.5px] text-zinc-400 mt-2">
-            CSV files only for now. Parsed entirely in your browser.
-          </p>
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".csv,text/csv"
-            onChange={onFileInputChange}
-            className="hidden"
-          />
+          {isParsingPdf ? (
+            <>
+              <div className="w-10 h-10 rounded-full border-2 border-zinc-200 border-t-zinc-900 mx-auto animate-spin" />
+              <p className="mt-5 text-[13.5px] text-zinc-500">
+                Reading PDF…
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="w-12 h-12 rounded-xl bg-zinc-100 flex items-center justify-center mx-auto mb-4">
+                <Upload className="w-5 h-5 text-zinc-600" strokeWidth={1.75} />
+              </div>
+              <p className="text-[14px] font-medium text-zinc-900">
+                Drop your statement here, or click to browse
+              </p>
+              <p className="text-[12.5px] text-zinc-400 mt-2">
+                CSV or PDF. Parsed entirely in your browser.
+              </p>
+              <input
+                ref={inputRef}
+                type="file"
+                accept=".csv,.pdf,text/csv,application/pdf"
+                onChange={onFileInputChange}
+                className="hidden"
+              />
+            </>
+          )}
         </div>
 
-        {error && (
-          <p className="mt-4 text-[13px] text-red-600">{error}</p>
-        )}
+        {error && <p className="mt-4 text-[13px] text-red-600">{error}</p>}
       </div>
     );
   }
 
-  // ============ MAPPING ============
-  if (stage === "mapping") {
+  // ============ PDF PREVIEW ============
+  if (stage === "pdf-preview") {
     return (
       <div className="space-y-8">
-        {/* File summary */}
         <div className="flex items-center justify-between rounded-xl border border-zinc-200 px-5 py-4">
           <div className="flex items-center gap-3 min-w-0">
             <FileText className="w-4 h-4 text-zinc-400 shrink-0" strokeWidth={1.75} />
+            <div className="min-w-0">
+              <p className="text-[13.5px] font-medium text-zinc-900 truncate">
+                {fileName}
+              </p>
+              <p className="text-[12px] text-zinc-400">
+                {pdfTxs.length} transaction{pdfTxs.length === 1 ? "" : "s"} ready
+                {pdfInternalFiltered > 0 &&
+                  ` · ${pdfInternalFiltered} internal transfer${pdfInternalFiltered === 1 ? "" : "s"} filtered`}
+                {pdfSkipped > 0 &&
+                  ` · ${pdfSkipped} row${pdfSkipped === 1 ? "" : "s"} skipped`}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={reset}
+            className="text-[12.5px] text-zinc-500 hover:text-zinc-900 transition-colors shrink-0"
+          >
+            Change file
+          </button>
+        </div>
+
+        <div>
+          <h3 className="text-[12px] font-medium uppercase tracking-[0.1em] text-zinc-500 mb-3">
+            Preview · first {Math.min(8, pdfTxs.length)} transaction
+            {Math.min(8, pdfTxs.length) === 1 ? "" : "s"}
+          </h3>
+          <div className="rounded-xl border border-zinc-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12.5px]">
+                <thead className="bg-zinc-50 border-b border-zinc-200">
+                  <tr>
+                    <th className="text-left px-4 py-2.5 font-medium text-zinc-500 whitespace-nowrap">
+                      Date
+                    </th>
+                    <th className="text-left px-4 py-2.5 font-medium text-zinc-500">
+                      Description
+                    </th>
+                    <th className="text-right px-4 py-2.5 font-medium text-zinc-500 whitespace-nowrap">
+                      Amount
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {pdfTxs.slice(0, 8).map((tx, i) => (
+                    <tr key={i} className="hover:bg-zinc-50/60">
+                      <td className="px-4 py-2.5 text-zinc-500 whitespace-nowrap tabular-nums">
+                        {new Date(tx.transactionDate).toLocaleDateString(
+                          "en-NG",
+                          { month: "short", day: "numeric" }
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-zinc-700 max-w-[400px] truncate">
+                        {tx.description}
+                      </td>
+                      <td
+                        className={`px-4 py-2.5 text-right whitespace-nowrap tabular-nums font-medium ${
+                          tx.type === "income"
+                            ? "text-emerald-600"
+                            : "text-zinc-900"
+                        }`}
+                      >
+                        {tx.type === "income" ? "+" : "−"}₦
+                        {(tx.amount / 100).toLocaleString("en-NG", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {pdfInternalFiltered > 0 && (
+            <p className="mt-3 text-[12px] text-zinc-400 leading-relaxed">
+              We filtered out {pdfInternalFiltered} internal OWealth transfer
+              {pdfInternalFiltered === 1 ? "" : "s"} — those are moves between your
+              own savings and current account, not real income or spending.
+            </p>
+          )}
+        </div>
+
+        {error && <p className="text-[13px] text-red-600">{error}</p>}
+
+        <div className="flex items-center justify-between pt-2">
+          <button
+            onClick={reset}
+            className="h-11 px-5 rounded-xl border border-zinc-200 text-[13px] font-medium text-zinc-700 hover:border-zinc-300 transition-colors flex items-center gap-2"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2} />
+            Back
+          </button>
+          <button
+            onClick={handleImportPdf}
+            className="h-11 px-6 rounded-xl bg-zinc-900 text-white text-[13px] font-medium hover:bg-zinc-800 transition-colors"
+          >
+            Import {pdfTxs.length} transaction{pdfTxs.length === 1 ? "" : "s"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ CSV MAPPING ============
+  if (stage === "mapping") {
+    return (
+      <div className="space-y-8">
+        <div className="flex items-center justify-between rounded-xl border border-zinc-200 px-5 py-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <FileSpreadsheet className="w-4 h-4 text-zinc-400 shrink-0" strokeWidth={1.75} />
             <div className="min-w-0">
               <p className="text-[13.5px] font-medium text-zinc-900 truncate">
                 {fileName}
@@ -199,7 +394,6 @@ export function CsvUpload() {
           </button>
         </div>
 
-        {/* Mapping */}
         <div>
           <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-zinc-900 mb-1">
             Map your columns
@@ -258,7 +452,6 @@ export function CsvUpload() {
           </div>
         </div>
 
-        {/* Preview */}
         <div>
           <h3 className="text-[12px] font-medium uppercase tracking-[0.1em] text-zinc-500 mb-3">
             Preview · first {Math.min(PREVIEW_ROWS, rows.length)} rows
@@ -299,7 +492,6 @@ export function CsvUpload() {
 
         {error && <p className="text-[13px] text-red-600">{error}</p>}
 
-        {/* Actions */}
         <div className="flex items-center justify-between pt-2">
           <button
             onClick={reset}
@@ -309,8 +501,8 @@ export function CsvUpload() {
             Back
           </button>
           <button
-            onClick={handleImport}
-            disabled={!canImport}
+            onClick={handleImportCsv}
+            disabled={!canImportCsv}
             className="h-11 px-6 rounded-xl bg-zinc-900 text-white text-[13px] font-medium hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Import {rows.length} row{rows.length === 1 ? "" : "s"}
@@ -340,9 +532,18 @@ export function CsvUpload() {
         Imported {importedCount} transaction{importedCount === 1 ? "" : "s"}
       </h2>
       <p className="text-[13.5px] text-zinc-500 mt-2">
-        {skippedCount > 0
-          ? `${skippedCount} row${skippedCount === 1 ? "" : "s"} skipped (couldn't parse)`
-          : "All rows imported cleanly."}
+        {pdfInternalFiltered > 0 && fileSource.startsWith("pdf") ? (
+          <>
+            {pdfInternalFiltered} internal transfer
+            {pdfInternalFiltered === 1 ? "" : "s"} filtered out.
+            {skippedCount > 0 &&
+              ` ${skippedCount} row${skippedCount === 1 ? "" : "s"} skipped (couldn't parse).`}
+          </>
+        ) : skippedCount > 0 ? (
+          `${skippedCount} row${skippedCount === 1 ? "" : "s"} skipped (couldn't parse)`
+        ) : (
+          "All rows imported cleanly."
+        )}
       </p>
       <div className="mt-8 flex items-center justify-center gap-3">
         <button
@@ -361,10 +562,6 @@ export function CsvUpload() {
     </div>
   );
 }
-
-// ============================================
-// MAPPING SELECT
-// ============================================
 
 function MappingSelect({
   label,

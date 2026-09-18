@@ -33,9 +33,9 @@ export default async function UploadPage() {
           Upload a statement
         </h1>
         <p className="text-[14px] text-zinc-500 mt-3 leading-relaxed max-w-lg">
-          Your file is parsed entirely in your browser. Only the extracted
-          transactions are sent to our server — the raw file never leaves
-          your device.
+          CSV or PDF. Your file is parsed entirely in your browser. Only the
+          extracted transactions are sent to our server — the raw file never
+          leaves your device.
         </p>
       </div>
 

@@ -32,17 +32,16 @@ export async function setMonthlyCap(
     return { success: false, error: "That's too large. Enter a realistic cap." };
   }
 
-  // Convert to kobo (integer) — ₦1 = 100 kobo
   const capInKobo = Math.round(amount * 100);
 
   await db
     .update(users)
     .set({
       monthlyCap: capInKobo,
-      onboardingCompletedAt: new Date(),
-      updatedAt: new Date(),
+      capCompletedAt: new Date(),
+      onboardingStep: 1, // cap done, needs baseline
     })
     .where(eq(users.clerkUserId, clerkUserId));
 
-  redirect("/dashboard");
+  redirect("/onboarding/baseline");
 }

@@ -8,6 +8,13 @@
       "when": 1789393492830,
       "tag": "0000_strange_thanos",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789746068748,
+      "tag": "0001_gigantic_avengers",
+      "breakpoints": true
     }
   ]
 }
